@@ -5,7 +5,6 @@ connections.
 """
 import asyncore, asynchat
 import socket
-import pdb
 try:
     import ssl
 except ImportError:

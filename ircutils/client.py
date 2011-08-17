@@ -126,11 +126,11 @@ class SimpleClient(object):
     
     
     def connect(self, host, port=None, channel=None, use_ssl=False, 
-                password=None):
+                password=None, ssl_options=None):
         """ Connect to an IRC server. """
         self.conn = connection.Connection()
         self.conn.handle_line = self._dispatch_event
-        self.conn.connect(host, port, use_ssl, password)
+        self.conn.connect(host, port, use_ssl, password, ssl_options)
         self.conn.execute("USER", self.user, self._mode, "*", 
                                   trailing=self.real_name)
         self.conn.execute("NICK", self.nickname)
