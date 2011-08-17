@@ -5,7 +5,7 @@ connections.
 """
 import asyncore, asynchat
 import socket
-
+import pdb
 try:
     import ssl
 except ImportError:
@@ -36,12 +36,13 @@ class Connection(asynchat.async_chat):
             self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
     
     
-    def connect(self, hostname, port=None, use_ssl=False, password=None):
+    def connect(self, hostname, port=None, use_ssl=False, password=None, ssl_options=None):
         """ Create a connection to the specified host. If a port is given, it'll
         attempt to connect with that. A password may be specified and it'll
         be sent if the IRC server requires one.
         
         """
+        self.ssl_options = ssl_options
         self.hostname = hostname
         self.port = port
         self.use_ssl = use_ssl
@@ -70,6 +71,67 @@ class Connection(asynchat.async_chat):
         self.handle_line(prefix, command, params)
     
     
+    def handle_error(self):
+        raise # Causes the error to propagate. I hate the compact traceback
+              # that asyncore uses.
+    
+    
+    def handle_connect(self):
+        """ Initializes SSL support after the connection has been made. """
+        if self.use_ssl:
+            if 'keyfile' in self.ssl_options:
+                keyfile = self.ssl_options['key_file']
+            else:
+                keyfile = None
+            if 'certfile' in self.ssl_options:
+                certfile = self.ssl_options['certfile']
+            else:
+                certfile = None
+            if 'ssl_version' in self.ssl_options:
+                ssl_version = self.ssl_options['ssl_version']
+            else:
+                ssl_version = 2
+            if 'server_side' in self.ssl_options:
+                server_side = self.ssl_options['server_side']
+            else:
+                server_side = False
+            if 'cert_reqs' in self.ssl_options:
+                if self.ssl_options['cert_reqs'].upper() == 'NONE':
+                    cert_reqs = ssl.CERT_NONE
+                if self.ssl_options['cert_reqs'].upper() == 'REQUIRED':
+                    cert_reqs = ssl.CERT_REQUIRED
+                if self.ssl_options['cert_reqs'].upper() == 'OPTIONAL':
+                    cert_reqs = ssl.CERT_OPTIONAL
+            else:
+                cert_reqs = ssl.CERT_OPTIONAL
+            if 'ca_certs' in self.ssl_options:
+                ca_certs = self.ssl_options['ca_certs']
+            else:
+                ca_certs = None
+            if 'do_handshake_on_connect' in self.ssl_options:
+                do_handshake_on_connect = self.ssl_options['do_handshake_on_connect']
+            else:
+                do_handshake_on_connect = True
+            #pdb.set_trace()
+            if 'suppress_ragged_eofs' in self.ssl_options:
+                suppress_ragged_eofs = self.ssl_options['suppress_ragged_eofs']
+            else:
+                suppress_ragged_eofs = True
+
+
+            self.ssl = ssl.wrap_socket(self.socket,
+                       keyfile=keyfile,
+                       certfile=certfile,
+                       server_side=server_side,
+                       cert_reqs=cert_reqs,
+                       ssl_version=ssl_version,
+                       ca_certs=ca_certs,
+                       do_handshake_on_connect=do_handshake_on_connect,
+                       suppress_ragged_eofs=True,
+                       ) 
+            self.set_socket(self.ssl)
+    
+    
     def execute(self, command, *params, **kwargs):
         """ This places an IRC command on the output queue. If you wish to use
         a trailing perameter, set it as a keyword argument, like so:
@@ -80,22 +142,8 @@ class Connection(asynchat.async_chat):
         params = filter(lambda x:x is not None, params)
         if "trailing" in kwargs:
             params = list(params)
-            if kwargs["trailing"] is not None:
-                params.append(":%s" % kwargs["trailing"])
+            params.append(":%s" % kwargs["trailing"])
         self.push("%s %s\r\n" % (command.upper(), " ".join(params)))
-    
-    
-    def handle_error(self):
-        raise # Causes the error to propagate. I hate the compact traceback
-              # that asyncore uses.
-    
-    
-    def handle_connect(self):
-        """ Initializes SSL support after the connection has been made. This is used
-        internally. Do not call this yourself. """
-        if self.use_ssl:
-            self.ssl = ssl.wrap_socket(self.socket)
-            self.set_socket(self.ssl)
     
     
     def handle_line(self, prefix, command, params):
@@ -120,7 +168,7 @@ class Connection(asynchat.async_chat):
     def _ssl_send(self, data):
         """ Replacement for self.send() during SSL connections. """
         try:
-            result = self.write(data)
+            result = self.socket.send(data)
             return result
         except ssl.SSLError, why:
             if why[0] == asyncore.EWOULDBLOCK:
@@ -133,7 +181,7 @@ class Connection(asynchat.async_chat):
     def _ssl_recv(self, buffer_size):
         """ Replacement for self.recv() during SSL connections. """
         try:
-            data = self.read(buffer_size)
+            data = self.socket.recv(buffer_size)
             if not data:
                 self.handle_close()
                 return ''
