@@ -11,7 +11,7 @@ import bisect
 import collections
 import traceback
 
-import protocol
+from . import protocol
 
 
 class EventDispatcher(object):
@@ -34,7 +34,7 @@ class EventDispatcher(object):
         return self._listeners[name]
     
     def __iter__(self):
-        return iter(self._listeners.keys())
+        return iter(self._listeners)
     
     def dispatch(self, client, event):
         """ Notifies all of the listeners that an event is available.
@@ -143,7 +143,10 @@ class EventListener(object):
         use this method as handlers are automatically added.
                 
         """
-        bisect.insort(self.handlers, (priority, handler))
+        self.handlers.insert(
+            bisect.bisect([h[0] for h in self.handlers], priority),
+            (priority, handler)
+        )
     
     def remove_handler(self, handler):
         """ This removes all handlers that are equal to the ``handler`` which
@@ -161,11 +164,15 @@ class EventListener(object):
         handler. It's a good idea to always make sure to send in the client
         and the event.
         """
+        try:
+            e = StandardError
+        except:
+            e = Exception
         for p, handler in self.handlers:
             try:
                 handler(*args)
-            except StandardError, ex:
-                traceback.print_exc(ex)
+            except:
+                traceback.print_exc()
                 self.handlers.remove((p, handler))
     
     def notify(self, client, event):
@@ -434,7 +441,7 @@ class NameReplyListener(ReplyListener):
             channel = event.params[1].lower()
             names = event.params[2].strip().split(" ")
             # TODO: This line below is wrong. It doesn't use name symbols.
-            names = map(protocol.strip_name_symbol, names)
+            names = list(map(protocol.strip_name_symbol, names))
             self._name_lists[channel].name_list.extend(names)
         elif event.command == "RPL_ENDOFNAMES":
             # <channel> :End of NAMES list
@@ -498,7 +505,7 @@ class WhoisReplyListener(ReplyListener):
         elif event.command == "RPL_WHOISCHANNELS":
             # <nick> :*( ( "@" / "+" ) <channel> " " )
             channels = event.params[1].strip().split()
-            channels = map(protocol.strip_name_symbol, channels)
+            channels = list(map(protocol.strip_name_symbol, channels))
             self._whois_replies[event.params[0]].channels.extend(channels)
         elif event.command == "RPL_WHOISSERVER":
             # <nick> <server> :<server info> 
